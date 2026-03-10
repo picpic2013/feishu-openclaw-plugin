@@ -974,17 +974,9 @@ export function createFeishuReplyDispatcher(params) {
 
                             if (!delta) return; // 没有新内容就跳过
 
-                            // [Custom] 智能拼接：只有明确边界才加分隔符，否则直接拼接
                             const currentLen = accumulatedReasoningText.length;
-                            const trimmedDelta = delta.trim();
-                            // 有明确换行 OR 完整句子结尾才加分隔符
-                            const hasNewline = delta.endsWith('\n');
-                            const isSentenceEnd = /[。！？.!?]$/.test(trimmedDelta);
-                            const separator = currentLen === 0 
-                                ? "" 
-                                : (hasNewline || isSentenceEnd ? "\n\n" : "");
-                            const newContent = separator + delta;
-                            const totalAfterAdd = currentLen + newContent.length;
+                            // 保留模型原始增量，避免按 chunk 边界错误插入换行。
+                            const totalAfterAdd = currentLen + delta.length;
 
                             // 超过阈值：关闭当前卡，创建新卡继续
                             if (totalAfterAdd > thinkingRolloverChars && currentLen > 0) {
@@ -1001,7 +993,7 @@ export function createFeishuReplyDispatcher(params) {
                                 params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, new card created`);
                             } else {
                                 // 持续累积
-                                accumulatedReasoningText += newContent;
+                                accumulatedReasoningText += delta;
                             }
                         } else {
                             // 非累积模式：覆盖

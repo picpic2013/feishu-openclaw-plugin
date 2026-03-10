@@ -22,7 +22,8 @@ This plugin provides comprehensive Feishu/Lark integration for OpenClaw, includi
 
 Additionally, the plugin supports:
 - **📱 Interactive Cards**: Real-time status updates (thinking/streaming/complete states), confirmation buttons for sensitive operations
-- **🌊 Streaming Replies**: Real-time streaming responses in message cards
+- **🌊 Streaming Replies**: Real-time streaming responses in message cards (both DMs and group chats)
+- **🧠 Thinking Display**: Preserves and displays AI thinking/thought process in real-time, helping users understand the AI's reasoning
 - **🔒 Permission Policies**: Flexible access control policies for DMs and group chats
 - **⚙️ Advanced Group Configuration**: Per-group settings including whitelists, skill bindings, and custom system prompts
 
@@ -90,23 +91,18 @@ Verify success:
 
 1.  **Configure `openclaw.json`**
 
-    After installation, edit your OpenClaw configuration file (`~/.openclaw/openclaw.json`) to enable the `feishu` channel and add your app credentials.
+    After installation, edit your OpenClaw configuration file (`~/.openclaw/openclaw.json`) to enable the `feishu-streamable` channel and add your app credentials.
 
     Here is a minimal configuration example:
 
     ```json
     {
       "channels": {
-        "feishu": {
+        "feishu-streamable": {
           "enabled": true,
           "appId": "cli_xxxxxxxxxxxxxx",
-          "appSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          "domain": "feishu",
-          "connectionMode": "websocket"
+          "appSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
-      },
-      "plugins": {
-        "allow": ["feishu-openclaw-plugin"]
       }
     }
     ```
@@ -143,24 +139,57 @@ Verify success:
 
 ## Configuration
 
-The plugin offers several configuration options to tailor its behavior. All settings are located under the `channels.feishu` key in your `openclaw.json`.
+The plugin offers several configuration options to tailor its behavior. All settings are located under the `channels.feishu-streamable` key in your `openclaw.json`.
 
-- `replyMode` (string | object): Controls how the AI delivers responses.
-    - `"auto"` (default): Uses streaming replies for DMs and static replies for group chats.
-    - `"streaming"`: Always use streaming card replies.
-    - `"static"`: Always send the response after it's fully generated.
+### Basic Configuration
 
-- `dmPolicy` (string): Access policy for direct messages.
-    - `"open"` (default): Responds to all DMs.
-    - `"pairing"`: Requires users to pair with a code before they can interact with the bot.
-    - `"allowlist"`: Only responds to whitelisted users.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable/disable the channel |
+| `appId` | string | - | Feishu App ID |
+| `appSecret` | string | - | Feishu App Secret |
+| `domain` | string | `"feishu"` | API domain (`feishu` or `lark`) |
+| `connectionMode` | string | `"websocket"` | Connection mode (`websocket` or `polling`) |
 
-- `groupPolicy` (string): Access policy for group chats.
-    - `"open"`: Allows interaction in any group chat when the bot is @mentioned.
-    - `"allowlist"` (recommended): Only works in whitelisted group chats.
-    - `"disabled"`: Disables all group chat interactions.
+### Reply & Streaming Options
 
-- `requireMention` (boolean): If `true` (default), the bot will only respond in group chats when it is @mentioned.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `replyMode` | string | `"auto"` | Reply mode: `auto`, `streaming`, or `static` |
+| `streaming` | boolean | `true` | Enable streaming replies |
+| `footer.elapsed` | boolean | `true` | Show elapsed time in streaming |
+| `footer.status` | boolean | `true` | Show status in streaming |
+
+### Access Control
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dmPolicy` | string | `"pairing"` | DM policy: `open`, `pairing`, or `allowlist` |
+| `groupPolicy` | string | `"allowlist"` | Group policy: `open`, `allowlist`, or `disabled` |
+| `requireMention` | boolean | `true` | Require @mention in group chats |
+| `groupAllowFrom` | string[] | `[]` | Allowed group IDs |
+
+### Example Configuration
+
+```json
+{
+  "channels": {
+    "feishu-streamable": {
+      "enabled": true,
+      "appId": "cli_xxxxxxxxxxxxxx",
+      "appSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "streaming": true,
+      "groupStreaming": true,
+      "thinkingRolloverChars": 20000,
+      "thinkingAccumulateEnabled": true,
+      "footer": {
+        "elapsed": true,
+        "status": true
+      }
+    }
+  }
+}
+```
 
 For more detailed configuration options, see [FEATURES.md](./openclaw/feishu/FEATURES.md).
 
@@ -168,25 +197,25 @@ For more detailed configuration options, see [FEATURES.md](./openclaw/feishu/FEA
 
 ```bash
 # View current configuration
-openclaw config get channels.feishu
+openclaw config get channels.feishu-streamable
 
 # Set to require @ mention to reply
-openclaw config set channels.feishu.requireMention true --json
+openclaw config set channels.feishu-streamable.requireMention true --json
 
 # Set to reply to all messages
-openclaw config set channels.feishu.requireMention open --json
+openclaw config set channels.feishu-streamable.requireMention open --json
 
 # Set specific group to require @ mention
-openclaw config set channels.feishu.groups.群ID.requireMention true --json
+openclaw config set channels.feishu-streamable.groups.群ID.requireMention true --json
 
 # Enable streaming output
-openclaw config set channels.feishu.streaming true
+openclaw config set channels.feishu-streamable.streaming true
 
 # Enable elapsed time display in streaming
-openclaw config set channels.feishu.footer.elapsed true
+openclaw config set channels.feishu-streamable.footer.elapsed true
 
 # Enable status display in streaming
-openclaw config set channels.feishu.footer.status true
+openclaw config set channels.feishu-streamable.footer.status true
 
 # View channel status
 openclaw channels status
@@ -211,21 +240,21 @@ feishu-plugin-onboard info --all
 
 **Mode 1: Only reply when @ mentioned (default)**
 ```bash
-openclaw config set channels.feishu.requireMention true --json
+openclaw config set channels.feishu-streamable.requireMention true --json
 ```
 
 **Mode 2: Reply to all messages**
 ```bash
-openclaw config set channels.feishu.requireMention false --json
+openclaw config set channels.feishu-streamable.requireMention false --json
 ```
 > Note: This mode can spam in large groups, use with caution!
 
 **Mode 3: Only specific groups require @ mention (advanced)**
 ```bash
 # First set default to not require @ for all groups
-openclaw config set channels.feishu.requireMention open --json
+openclaw config set channels.feishu-streamable.requireMention open --json
 # Then set specific group to require @
-openclaw config set channels.feishu.groups.oc_xxxxxxxx.requireMention true --json
+openclaw config set channels.feishu-streamable.groups.oc_xxxxxxxx.requireMention true --json
 ```
 
 ## FAQ

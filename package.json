@@ -1,6 +1,6 @@
 {
   "name": "@picpic2013/feishu-openclaw-plugin-streamable",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "OpenClaw Feishu/Lark channel plugin - Enhanced with streaming replies & thinking display for group chats",
   "type": "module",
   "files": [

@@ -189,6 +189,7 @@ export function createFeishuReplyDispatcher(params) {
     // Reasoning / thinking state
     let accumulatedReasoningText = "";
     let lastSentReasoningText = ""; // [Custom] 上次发送给飞书的 thinking 内容，用于去重
+    let lastReasoningText = ""; // [Custom] 上次框架传来的完整 thinking 文本，用于计算增量
     let reasoningStartTime = null;
     let reasoningElapsedMs = 0;
     let isReasoningPhase = false;
@@ -609,6 +610,7 @@ export function createFeishuReplyDispatcher(params) {
         pendingFlushTimer = null;
         accumulatedReasoningText = "";
         lastSentReasoningText = ""; // [Custom] 重置
+        lastReasoningText = ""; // [Custom] 重置
         reasoningStartTime = null;
         reasoningElapsedMs = 0;
         isReasoningPhase = true;
@@ -964,9 +966,16 @@ export function createFeishuReplyDispatcher(params) {
                             return;
 
                         if (thinkingAccumulateEnabled) {
-                            // 累积模式：持续往同一张卡里塞内容，不覆盖
+                            // 累积模式：只追加增量，避免重复
+                            const delta = newThinkingText.startsWith(lastReasoningText)
+                                ? newThinkingText.slice(lastReasoningText.length)
+                                : newThinkingText;
+                            lastReasoningText = newThinkingText;
+
+                            if (!delta) return; // 没有新内容就跳过
+
                             const currentLen = accumulatedReasoningText.length;
-                            const newContent = currentLen === 0 ? newThinkingText : "\n\n" + newThinkingText;
+                            const newContent = currentLen === 0 ? delta : "\n\n" + delta;
                             const totalAfterAdd = currentLen + newContent.length;
 
                             // 超过阈值：关闭当前卡，创建新卡继续
@@ -979,7 +988,7 @@ export function createFeishuReplyDispatcher(params) {
                                 });
                                 // 重置状态，创建新卡
                                 reasoningRolloverBaseLength = 0;
-                                accumulatedReasoningText = newThinkingText; // 新卡从新内容开始
+                                accumulatedReasoningText = delta; // 新卡从增量开始
                                 resetActiveCardForRollover();
                                 params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, new card created`);
                             } else {

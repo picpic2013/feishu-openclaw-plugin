@@ -974,8 +974,13 @@ export function createFeishuReplyDispatcher(params) {
 
                             if (!delta) return; // 没有新内容就跳过
 
+                            // [Custom] 智能拼接：根据句子边界决定分隔符
                             const currentLen = accumulatedReasoningText.length;
-                            const newContent = currentLen === 0 ? delta : "\n\n" + delta;
+                            const isSentenceEnd = /[。！？.!?]$/.test(delta.trim());
+                            const separator = currentLen === 0 
+                                ? "" 
+                                : (isSentenceEnd ? "\n\n" : " ");
+                            const newContent = separator + delta;
                             const totalAfterAdd = currentLen + newContent.length;
 
                             // 超过阈值：关闭当前卡，创建新卡继续

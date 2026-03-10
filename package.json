@@ -1,5 +1,5 @@
 {
-  "name": "@picpic/feishu-openclaw-plugin-streamable",
+  "name": "@picpic2013/feishu-openclaw-plugin-streamable",
   "version": "1.0.0",
   "description": "OpenClaw Feishu/Lark channel plugin - Enhanced with streaming replies & thinking display for group chats",
   "type": "module",
@@ -39,7 +39,7 @@
       "quickstartAllowFrom": true
     },
     "install": {
-      "npmSpec": "@picpic/feishu-openclaw-plugin-streamable",
+      "npmSpec": "@picpic2013/feishu-openclaw-plugin-streamable",
       "localPath": "extensions/feishu",
       "defaultChoice": "npm"
     }

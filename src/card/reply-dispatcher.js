@@ -197,6 +197,7 @@ export function createFeishuReplyDispatcher(params) {
     const thinkingAccumulateEnabled = feishuCfg?.thinkingAccumulateEnabled === true;
     const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
     const thinkingRolloverIncludeFinalSegment = feishuCfg?.thinkingRolloverIncludeFinalSegment !== true; // 默认不包含 thinking
+    const thinkingAbortFinalize = feishuCfg?.thinkingAbortFinalize !== false; // [Custom] stop 时是否终止 thinking 卡片，默认 true
     let reasoningRolloverBaseLength = 0; // 当前卡已累积的 thinking 长度
     // CardKit cardElement.content() is designed for streaming — low throttle.
     // im.message.patch has strict rate limits ("Update the single messages too

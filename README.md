@@ -151,12 +151,24 @@ The plugin offers several configuration options to tailor its behavior. All sett
 | `domain` | string | `"feishu"` | API domain (`feishu` or `lark`) |
 | `connectionMode` | string | `"websocket"` | Connection mode (`websocket` or `polling`) |
 
+### Thinking Display Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `thinkingAccumulateEnabled` | boolean | `false` | Enable thinking accumulation (show thinking in real-time) |
+| `thinkingRolloverChars` | number | `20000` | Character threshold to start a new card when thinking is too long |
+| `thinkingAbortFinalize` | boolean | `true` | Whether to finalize thinking card when user sends /stop |
+
 ### Reply & Streaming Options
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `replyMode` | string | `"auto"` | Reply mode: `auto`, `streaming`, or `static` |
 | `streaming` | boolean | `true` | Enable streaming replies |
+| `groupStreaming` | boolean | `false` | Enable streaming in group chats |
+| `instantCard` | boolean | `false` | Instantly show "processing" card before AI starts responding |
+| `streamingBatchMs` | number | `300` | Delay before sending first batch (ms). Lower = faster first response |
+| `streamingThrottleMs` | number | `1500` | Minimum interval between card updates (ms). Lower = more updates but more API calls |
 | `footer.elapsed` | boolean | `true` | Show elapsed time in streaming |
 | `footer.status` | boolean | `true` | Show status in streaming |
 
@@ -180,8 +192,12 @@ The plugin offers several configuration options to tailor its behavior. All sett
       "appSecret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       "streaming": true,
       "groupStreaming": true,
-      "thinkingRolloverChars": 20000,
+      "instantCard": false,
+      "streamingBatchMs": 50,
+      "streamingThrottleMs": 1500,
       "thinkingAccumulateEnabled": true,
+      "thinkingRolloverChars": 20000,
+      "thinkingAbortFinalize": true,
       "footer": {
         "elapsed": true,
         "status": true

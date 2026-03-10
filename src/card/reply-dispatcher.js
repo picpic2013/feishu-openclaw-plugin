@@ -966,6 +966,8 @@ export function createFeishuReplyDispatcher(params) {
                             return;
 
                         if (thinkingAccumulateEnabled) {
+                            const hadReasoningReset = lastReasoningText.length > 0 &&
+                                newThinkingText.length < lastReasoningText.length;
                             // 累积模式：只追加增量，避免重复
                             const delta = newThinkingText.startsWith(lastReasoningText)
                                 ? newThinkingText.slice(lastReasoningText.length)
@@ -975,8 +977,11 @@ export function createFeishuReplyDispatcher(params) {
                             if (!delta) return; // 没有新内容就跳过
 
                             const currentLen = accumulatedReasoningText.length;
+                            const prefixedDelta = hadReasoningReset && currentLen > 0
+                                ? `\n\n${delta}`
+                                : delta;
                             // 保留模型原始增量，避免按 chunk 边界错误插入换行。
-                            const totalAfterAdd = currentLen + delta.length;
+                            const totalAfterAdd = currentLen + prefixedDelta.length;
 
                             // 超过阈值：关闭当前卡，创建新卡继续
                             if (totalAfterAdd > thinkingRolloverChars && currentLen > 0) {
@@ -993,7 +998,7 @@ export function createFeishuReplyDispatcher(params) {
                                 params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, new card created`);
                             } else {
                                 // 持续累积
-                                accumulatedReasoningText += delta;
+                                accumulatedReasoningText += prefixedDelta;
                             }
                         } else {
                             // 非累积模式：覆盖

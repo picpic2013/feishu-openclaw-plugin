@@ -17,9 +17,9 @@
 
 实现要点：
 1. 所有 thinking 卡都发在主流，不使用 thread。
-2. `onReasoningStream` 按 `thinkingRolloverChars` 控制当前卡的 thinking 长度。
+2. 只有显式开启 `thinkingRolloverEnabled=true` 时，`onReasoningStream` 才会按 `thinkingRolloverChars` 滚动换卡。
 3. 超过阈值时，当前卡会先终态化，再创建下一张卡继续流式更新。
-4. 最终完成或 `/stop` 时，当前卡会进入 complete / aborted 状态。
+4. 最终完成和 `/stop` 的收口行为也都有独立开关控制。
 
 ---
 
@@ -31,6 +31,7 @@
 {
   "feishu": {
     "default": {
+      "thinkingRolloverEnabled": false,
       "thinkingRolloverChars": 8000
     }
   }
@@ -39,7 +40,10 @@
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |---|---|---:|---|
-| `thinkingRolloverChars` | number | `8000` | 单张主卡允许承载的 thinking 字符阈值 |
+| `thinkingRolloverEnabled` | boolean | `false` | 是否启用主卡 thinking 滚动换卡 |
+| `thinkingRolloverChars` | number | `8000` | 单张主卡允许承载的 thinking 字符阈值，仅在 `thinkingRolloverEnabled=true` 时生效 |
+| `thinkingRolloverIncludeFinalSegment` | boolean | `true` | 最终 complete / aborted 卡是否保留最后一段 thinking，默认与原版一致 |
+| `thinkingAbortFinalize` | boolean | `true` | `/stop` 时是否终态化当前卡，默认与原版一致 |
 
 以下配置已弃用，不再影响运行行为：
 - `thinkingThreadedMode`
@@ -53,6 +57,8 @@
 
 ## 使用建议
 
-1. 通过 `thinkingRolloverChars` 控制单卡 thinking 上限。
-2. 不再配置 thread 相关字段。
-3. 修改配置后重启 OpenClaw。
+1. 默认情况下，不开启 `thinkingRolloverEnabled`，行为与原版保持一致。
+2. 需要滚动换卡时，再显式设置 `thinkingRolloverEnabled=true`。
+3. 通过 `thinkingRolloverChars` 控制单卡 thinking 上限。
+4. 不再配置 thread 相关字段。
+5. 修改配置后重启 OpenClaw。

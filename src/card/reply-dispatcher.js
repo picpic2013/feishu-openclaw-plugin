@@ -198,8 +198,11 @@ export function createFeishuReplyDispatcher(params) {
     // [Custom] 支持配置化，不配置时保持原默认值
     const CARDKIT_THROTTLE_MS = 100; // CardKit 更新间隔（不提供配置）
     const PATCH_THROTTLE_MS = feishuCfg?.streamingThrottleMs ?? 1500; // IM patch 更新间隔，默认 1500ms
+    const thinkingRolloverEnabled = feishuCfg?.thinkingRolloverEnabled === true;
     const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
-    // [Custom] 主卡滚动换卡：保留旧 thread 字段兼容日志，但不再启用 thread 分卡逻辑
+    const thinkingRolloverIncludeFinalSegment = feishuCfg?.thinkingRolloverIncludeFinalSegment !== false;
+    const thinkingAbortFinalize = feishuCfg?.thinkingAbortFinalize !== false;
+    // [Custom] 主卡滚动换卡：默认关闭，显式开启后才启用
     const mainReplyInThread = replyInThread;
     const _deprecatedThinkingThreadedMode = feishuCfg?.thinkingThreadedMode;
     const _deprecatedThinkingPhaseThresholdMs = feishuCfg?.thinkingPhaseThresholdMs;
@@ -209,7 +212,7 @@ export function createFeishuReplyDispatcher(params) {
         _deprecatedThinkingPhaseThresholdMs !== undefined ||
         _deprecatedThinkingThreadMode !== undefined ||
         _deprecatedThinkingFinalReplyOutsideThread !== undefined) {
-        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Using main-card rollover mode with thinkingRolloverChars=${thinkingRolloverChars}.`);
+        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Use thinkingRolloverEnabled/thinkingRolloverChars/thinkingRolloverIncludeFinalSegment/thinkingAbortFinalize.`);
     }
     /** After a long idle gap (tool call / LLM thinking), defer the first
      *  flush briefly so we accumulate enough chars for a meaningful update
@@ -560,9 +563,12 @@ export function createFeishuReplyDispatcher(params) {
         const elapsedMs = elapsedMsOverride ?? trace.elapsed();
         const fallbackText = isAborted ? "Aborted." : "";
         const displayText = textOverride ?? completedText ?? accumulatedText ?? fallbackText;
+        const effectiveReasoningText = reasoningTextOverride !== undefined
+            ? reasoningTextOverride || undefined
+            : accumulatedReasoningText || undefined;
         const completeCard = buildCardContent("complete", {
             text: displayText,
-            reasoningText: reasoningTextOverride ?? accumulatedReasoningText ?? undefined,
+            reasoningText: effectiveReasoningText,
             reasoningElapsedMs: reasoningElapsedMs || undefined,
             elapsedMs,
             isAborted,
@@ -889,6 +895,9 @@ export function createFeishuReplyDispatcher(params) {
                     }
                     await finalizeActiveCard({
                         textOverride: displayText,
+                        reasoningTextOverride: thinkingRolloverIncludeFinalSegment
+                            ? accumulatedReasoningText
+                            : "",
                     });
                     params.runtime.log?.(`feishu[${account.accountId}]: updated card to complete state`);
                     trace.info(`reply completed, card finalized (elapsed=${trace.elapsed()}ms)`);
@@ -914,10 +923,17 @@ export function createFeishuReplyDispatcher(params) {
         try {
             aborted = true;
             cardCompleted = true;
+            if (!thinkingAbortFinalize) {
+                params.runtime.log?.(`feishu[${account.accountId}]: abortCard finalize disabled by config`);
+                return;
+            }
             await finalizeActiveCard({
                 isAborted: true,
                 textOverride: accumulatedText || "Aborted.",
                 elapsedMsOverride: Date.now() - dispatchStartTime,
+                reasoningTextOverride: thinkingRolloverIncludeFinalSegment
+                    ? accumulatedReasoningText
+                    : "",
             });
             params.runtime.log?.(`feishu[${account.accountId}]: abortCard completed`);
         }
@@ -956,23 +972,29 @@ export function createFeishuReplyDispatcher(params) {
                         const fullThinkingText = split.reasoningText ?? rawText;
                         if (!fullThinkingText)
                             return;
-                        while (fullThinkingText.length - reasoningRolloverBaseLength > thinkingRolloverChars) {
-                            await ensureCardCreated();
-                            if (terminatedByUnavailable || !cardMessageId)
-                                return;
-                            accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength, reasoningRolloverBaseLength + thinkingRolloverChars);
-                            reasoningElapsedMs = reasoningStartTime
-                                ? Date.now() - reasoningStartTime
-                                : 0;
-                            await finalizeActiveCard({
-                                textOverride: accumulatedText,
-                                reasoningTextOverride: accumulatedReasoningText,
-                            });
-                            reasoningRolloverBaseLength += thinkingRolloverChars;
-                            resetActiveCardForRollover();
-                            params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, nextBase=${reasoningRolloverBaseLength}, threshold=${thinkingRolloverChars}`);
+                        if (thinkingRolloverEnabled) {
+                            while (fullThinkingText.length - reasoningRolloverBaseLength > thinkingRolloverChars) {
+                                await ensureCardCreated();
+                                if (terminatedByUnavailable || !cardMessageId)
+                                    return;
+                                accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength, reasoningRolloverBaseLength + thinkingRolloverChars);
+                                reasoningElapsedMs = reasoningStartTime
+                                    ? Date.now() - reasoningStartTime
+                                    : 0;
+                                await finalizeActiveCard({
+                                    textOverride: accumulatedText,
+                                    reasoningTextOverride: accumulatedReasoningText,
+                                });
+                                reasoningRolloverBaseLength += thinkingRolloverChars;
+                                resetActiveCardForRollover();
+                                params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, nextBase=${reasoningRolloverBaseLength}, threshold=${thinkingRolloverChars}`);
+                            }
+                            accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength);
                         }
-                        accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength);
+                        else {
+                            reasoningRolloverBaseLength = 0;
+                            accumulatedReasoningText = fullThinkingText;
+                        }
                         await throttledCardUpdate();
                     },
                     onPartialReply: async (payload) => {

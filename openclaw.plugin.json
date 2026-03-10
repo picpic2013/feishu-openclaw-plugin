@@ -1,6 +1,6 @@
 {
-  "id": "feishu-openclaw-plugin",
-  "channels": ["feishu"],
+  "id": "feishu-streamable",
+  "channels": ["feishu-streamable"],
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",

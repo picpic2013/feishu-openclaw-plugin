@@ -188,6 +188,7 @@ export function createFeishuReplyDispatcher(params) {
     let aborted = false; // set ONLY by abortCard(), checked in deliver()
     // Reasoning / thinking state
     let accumulatedReasoningText = "";
+    let lastSentReasoningText = ""; // [Custom] 上次发送给飞书的 thinking 内容，用于去重
     let reasoningStartTime = null;
     let reasoningElapsedMs = 0;
     let isReasoningPhase = false;
@@ -607,6 +608,7 @@ export function createFeishuReplyDispatcher(params) {
         cardKitSequence = 0;
         pendingFlushTimer = null;
         accumulatedReasoningText = "";
+        lastSentReasoningText = ""; // [Custom] 重置
         reasoningStartTime = null;
         reasoningElapsedMs = 0;
         isReasoningPhase = true;
@@ -989,7 +991,11 @@ export function createFeishuReplyDispatcher(params) {
                             accumulatedReasoningText = newThinkingText;
                             reasoningRolloverBaseLength = 0;
                         }
-                        await throttledCardUpdate();
+                        // [Custom] 去重：只有当内容真正变化时才更新，避免飞书 diff 显示重复
+                        if (accumulatedReasoningText !== lastSentReasoningText) {
+                            lastSentReasoningText = accumulatedReasoningText;
+                            await throttledCardUpdate();
+                        }
                     },
                     onPartialReply: async (payload) => {
                         if (terminatedByUnavailable || shouldSkipForUnavailable("onPartialReply"))

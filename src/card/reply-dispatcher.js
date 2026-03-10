@@ -188,32 +188,19 @@ export function createFeishuReplyDispatcher(params) {
     let aborted = false; // set ONLY by abortCard(), checked in deliver()
     // Reasoning / thinking state
     let accumulatedReasoningText = "";
-    let reasoningRolloverBaseLength = 0; // 当前卡已消耗的 thinking 历史长度
     let reasoningStartTime = null;
     let reasoningElapsedMs = 0;
     let isReasoningPhase = false;
+    // [Custom] 累积模式：持续累积 thinking，不覆盖
+    const thinkingAccumulateEnabled = feishuCfg?.thinkingAccumulateEnabled === true;
+    const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
+    let reasoningRolloverBaseLength = 0; // 当前卡已累积的 thinking 长度
     // CardKit cardElement.content() is designed for streaming — low throttle.
     // im.message.patch has strict rate limits ("Update the single messages too
     // frequently" / code 230020) — needs a much higher interval.
     // [Custom] 支持配置化，不配置时保持原默认值
     const CARDKIT_THROTTLE_MS = 100; // CardKit 更新间隔（不提供配置）
     const PATCH_THROTTLE_MS = feishuCfg?.streamingThrottleMs ?? 1500; // IM patch 更新间隔，默认 1500ms
-    const thinkingRolloverEnabled = feishuCfg?.thinkingRolloverEnabled === true;
-    const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
-    const thinkingRolloverIncludeFinalSegment = feishuCfg?.thinkingRolloverIncludeFinalSegment !== false;
-    const thinkingAbortFinalize = feishuCfg?.thinkingAbortFinalize !== false;
-    // [Custom] 主卡滚动换卡：默认关闭，显式开启后才启用
-    const mainReplyInThread = replyInThread;
-    const _deprecatedThinkingThreadedMode = feishuCfg?.thinkingThreadedMode;
-    const _deprecatedThinkingPhaseThresholdMs = feishuCfg?.thinkingPhaseThresholdMs;
-    const _deprecatedThinkingThreadMode = feishuCfg?.thinkingThreadMode;
-    const _deprecatedThinkingFinalReplyOutsideThread = feishuCfg?.thinkingFinalReplyOutsideThread;
-    if (_deprecatedThinkingThreadedMode !== undefined ||
-        _deprecatedThinkingPhaseThresholdMs !== undefined ||
-        _deprecatedThinkingThreadMode !== undefined ||
-        _deprecatedThinkingFinalReplyOutsideThread !== undefined) {
-        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Use thinkingRolloverEnabled/thinkingRolloverChars/thinkingRolloverIncludeFinalSegment/thinkingAbortFinalize.`);
-    }
     /** After a long idle gap (tool call / LLM thinking), defer the first
      *  flush briefly so we accumulate enough chars for a meaningful update
      *  instead of sending only 1-2 characters. */
@@ -969,31 +956,37 @@ export function createFeishuReplyDispatcher(params) {
                         isReasoningPhase = true;
                         // Framework sends "Reasoning:\n_italic content_" — clean it
                         const split = splitReasoningText(rawText);
-                        const fullThinkingText = split.reasoningText ?? rawText;
-                        if (!fullThinkingText)
+                        const newThinkingText = split.reasoningText ?? rawText;
+                        if (!newThinkingText)
                             return;
-                        if (thinkingRolloverEnabled) {
-                            while (fullThinkingText.length - reasoningRolloverBaseLength > thinkingRolloverChars) {
-                                await ensureCardCreated();
-                                if (terminatedByUnavailable || !cardMessageId)
-                                    return;
-                                accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength, reasoningRolloverBaseLength + thinkingRolloverChars);
-                                reasoningElapsedMs = reasoningStartTime
-                                    ? Date.now() - reasoningStartTime
-                                    : 0;
+
+                        if (thinkingAccumulateEnabled) {
+                            // 累积模式：持续往同一张卡里塞内容，不覆盖
+                            const currentLen = accumulatedReasoningText.length;
+                            const newContent = currentLen === 0 ? newThinkingText : "\n\n" + newThinkingText;
+                            const totalAfterAdd = currentLen + newContent.length;
+
+                            // 超过阈值：关闭当前卡，创建新卡继续
+                            if (totalAfterAdd > thinkingRolloverChars && currentLen > 0) {
+                                // 先 finalize 当前卡
+                                reasoningElapsedMs = reasoningStartTime ? Date.now() - reasoningStartTime : 0;
                                 await finalizeActiveCard({
-                                    textOverride: accumulatedText,
+                                    textOverride: "",
                                     reasoningTextOverride: accumulatedReasoningText,
                                 });
-                                reasoningRolloverBaseLength += thinkingRolloverChars;
+                                // 重置状态，创建新卡
+                                reasoningRolloverBaseLength = 0;
+                                accumulatedReasoningText = newThinkingText; // 新卡从新内容开始
                                 resetActiveCardForRollover();
-                                params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, nextBase=${reasoningRolloverBaseLength}, threshold=${thinkingRolloverChars}`);
+                                params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, new card created`);
+                            } else {
+                                // 持续累积
+                                accumulatedReasoningText += newContent;
                             }
-                            accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength);
-                        }
-                        else {
+                        } else {
+                            // 非累积模式：覆盖
+                            accumulatedReasoningText = newThinkingText;
                             reasoningRolloverBaseLength = 0;
-                            accumulatedReasoningText = fullThinkingText;
                         }
                         await throttledCardUpdate();
                     },

@@ -188,6 +188,7 @@ export function createFeishuReplyDispatcher(params) {
     let aborted = false; // set ONLY by abortCard(), checked in deliver()
     // Reasoning / thinking state
     let accumulatedReasoningText = "";
+    let reasoningRolloverBaseLength = 0; // 当前卡已消耗的 thinking 历史长度
     let reasoningStartTime = null;
     let reasoningElapsedMs = 0;
     let isReasoningPhase = false;
@@ -197,19 +198,18 @@ export function createFeishuReplyDispatcher(params) {
     // [Custom] 支持配置化，不配置时保持原默认值
     const CARDKIT_THROTTLE_MS = 100; // CardKit 更新间隔（不提供配置）
     const PATCH_THROTTLE_MS = feishuCfg?.streamingThrottleMs ?? 1500; // IM patch 更新间隔，默认 1500ms
-    // [Custom] 单卡累积 thinking：保留旧字段兼容日志，但不再启用 thread 分卡逻辑
+    const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
+    // [Custom] 主卡滚动换卡：保留旧 thread 字段兼容日志，但不再启用 thread 分卡逻辑
     const mainReplyInThread = replyInThread;
     const _deprecatedThinkingThreadedMode = feishuCfg?.thinkingThreadedMode;
     const _deprecatedThinkingPhaseThresholdMs = feishuCfg?.thinkingPhaseThresholdMs;
     const _deprecatedThinkingThreadMode = feishuCfg?.thinkingThreadMode;
-    const _deprecatedThinkingRolloverChars = feishuCfg?.thinkingRolloverChars;
     const _deprecatedThinkingFinalReplyOutsideThread = feishuCfg?.thinkingFinalReplyOutsideThread;
     if (_deprecatedThinkingThreadedMode !== undefined ||
         _deprecatedThinkingPhaseThresholdMs !== undefined ||
         _deprecatedThinkingThreadMode !== undefined ||
-        _deprecatedThinkingRolloverChars !== undefined ||
         _deprecatedThinkingFinalReplyOutsideThread !== undefined) {
-        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Using single-card accumulated thinking mode.`);
+        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Using main-card rollover mode with thinkingRolloverChars=${thinkingRolloverChars}.`);
     }
     /** After a long idle gap (tool call / LLM thinking), defer the first
      *  flush briefly so we accumulate enough chars for a meaningful update
@@ -546,6 +546,77 @@ export function createFeishuReplyDispatcher(params) {
         // If a deferred flush is already scheduled, do nothing — it will
         // pick up the latest accumulatedText when it fires.
     };
+    const finalizeActiveCard = async ({ isAborted = false, textOverride, reasoningTextOverride, elapsedMsOverride, footerOverride = resolvedFooter, } = {}) => {
+        if (pendingFlushTimer) {
+            clearTimeout(pendingFlushTimer);
+            pendingFlushTimer = null;
+        }
+        await waitForFlush();
+        if (cardCreationPromise)
+            await cardCreationPromise;
+        const effectiveCardId = cardKitCardId ?? originalCardKitCardId;
+        if (!cardMessageId && !effectiveCardId)
+            return;
+        const elapsedMs = elapsedMsOverride ?? trace.elapsed();
+        const fallbackText = isAborted ? "Aborted." : "";
+        const displayText = textOverride ?? completedText ?? accumulatedText ?? fallbackText;
+        const completeCard = buildCardContent("complete", {
+            text: displayText,
+            reasoningText: reasoningTextOverride ?? accumulatedReasoningText ?? undefined,
+            reasoningElapsedMs: reasoningElapsedMs || undefined,
+            elapsedMs,
+            isAborted,
+            footer: footerOverride,
+        });
+        if (effectiveCardId) {
+            const seqBeforeClose = cardKitSequence;
+            cardKitSequence += 1;
+            trace.info(`finalizeActiveCard: closing streaming mode, seq ${seqBeforeClose} -> ${cardKitSequence}`);
+            await setCardStreamingMode({
+                cfg,
+                cardId: effectiveCardId,
+                streamingMode: false,
+                sequence: cardKitSequence,
+                accountId,
+            });
+            const seqBeforeUpdate = cardKitSequence;
+            cardKitSequence += 1;
+            trace.info(`finalizeActiveCard: updating final card, seq ${seqBeforeUpdate} -> ${cardKitSequence}`);
+            await updateCardKitCard({
+                cfg,
+                cardId: effectiveCardId,
+                card: toCardKit2(completeCard),
+                sequence: cardKitSequence,
+                accountId,
+            });
+        }
+        else if (cardMessageId) {
+            await updateCardFeishu({
+                cfg,
+                messageId: cardMessageId,
+                card: completeCard,
+                accountId,
+            });
+        }
+    };
+    const resetActiveCardForRollover = () => {
+        cardMessageId = null;
+        cardCreationFailed = false;
+        cardCreationPromise = null;
+        accumulatedText = "";
+        completedText = "";
+        streamingPrefix = "";
+        lastPartialText = "";
+        lastCardUpdateTime = 0;
+        cardKitCardId = null;
+        originalCardKitCardId = null;
+        cardKitSequence = 0;
+        pendingFlushTimer = null;
+        accumulatedReasoningText = "";
+        reasoningStartTime = null;
+        reasoningElapsedMs = 0;
+        isReasoningPhase = true;
+    };
     // ---- Build dispatcher ----
     const { dispatcher, replyOptions, markDispatchIdle } = core.channel.reply.createReplyDispatcherWithTyping({
         responsePrefix: prefixContext.responsePrefix,
@@ -805,22 +876,8 @@ export function createFeishuReplyDispatcher(params) {
                 await waitForFlush();
             }
             // Update streaming card to "complete" state
-            const idleEffectiveCardId = cardKitCardId ?? originalCardKitCardId;
             if (useStreamingCards && cardMessageId) {
                 try {
-                    if (idleEffectiveCardId) {
-                        // Close streaming mode — required before card.update.
-                        const seqBeforeClose = cardKitSequence;
-                        cardKitSequence += 1;
-                        trace.info(`onIdle: closing streaming mode, seq ${seqBeforeClose} -> ${cardKitSequence}`);
-                        await setCardStreamingMode({
-                            cfg,
-                            cardId: idleEffectiveCardId,
-                            streamingMode: false,
-                            sequence: cardKitSequence,
-                            accountId,
-                        });
-                    }
                     // 使用 completedText（deliver 累积的权威文本）作为最终内容
                     const isNoReplyLeak = !completedText && SILENT_REPLY_TOKEN.startsWith(accumulatedText.trim());
                     const displayText = completedText ||
@@ -830,34 +887,10 @@ export function createFeishuReplyDispatcher(params) {
                     if (!completedText && !accumulatedText) {
                         trace.warn("reply completed without visible text, using empty-reply fallback");
                     }
-                    const completeCard = buildCardContent("complete", {
-                        text: displayText,
-                        reasoningText: accumulatedReasoningText || undefined,
-                        reasoningElapsedMs: reasoningElapsedMs || undefined,
-                        elapsedMs: trace.elapsed(),
-                        footer: resolvedFooter,
+                    await finalizeActiveCard({
+                        textOverride: displayText,
                     });
-                    if (idleEffectiveCardId) {
-                        const seqBeforeUpdate = cardKitSequence;
-                        cardKitSequence += 1;
-                        trace.info(`onIdle: updating final card, seq ${seqBeforeUpdate} -> ${cardKitSequence}`);
-                        await updateCardKitCard({
-                            cfg,
-                            cardId: idleEffectiveCardId,
-                            card: toCardKit2(completeCard),
-                            sequence: cardKitSequence,
-                            accountId,
-                        });
-                    }
-                    else {
-                        await updateCardFeishu({
-                            cfg,
-                            messageId: cardMessageId,
-                            card: completeCard,
-                            accountId,
-                        });
-                    }
-                    params.runtime.log?.(`feishu[${account.accountId}]: updated card to complete state${idleEffectiveCardId ? " (CardKit)" : ""}`);
+                    params.runtime.log?.(`feishu[${account.accountId}]: updated card to complete state`);
                     trace.info(`reply completed, card finalized (elapsed=${trace.elapsed()}ms)`);
                 }
                 catch (err) {
@@ -881,47 +914,12 @@ export function createFeishuReplyDispatcher(params) {
         try {
             aborted = true;
             cardCompleted = true;
-            if (pendingFlushTimer) {
-                clearTimeout(pendingFlushTimer);
-                pendingFlushTimer = null;
-            }
-            await waitForFlush();
-            if (cardCreationPromise)
-                await cardCreationPromise;
-            const effectiveCardId = cardKitCardId ?? originalCardKitCardId;
-            if (effectiveCardId) {
-                const elapsedMs = Date.now() - dispatchStartTime;
-                const abortText = accumulatedText || "Aborted.";
-                const abortCard = buildCardContent("complete", {
-                    text: abortText,
-                    reasoningText: accumulatedReasoningText || undefined,
-                    reasoningElapsedMs: reasoningElapsedMs || undefined,
-                    elapsedMs,
-                    isAborted: true,
-                    footer: resolvedFooter,
-                });
-                const seqBeforeClose = cardKitSequence;
-                cardKitSequence += 1;
-                trace.info(`abortCard: closing streaming mode, seq ${seqBeforeClose} -> ${cardKitSequence}`);
-                await setCardStreamingMode({
-                    cfg,
-                    cardId: effectiveCardId,
-                    streamingMode: false,
-                    sequence: cardKitSequence,
-                    accountId,
-                });
-                const seqBeforeUpdate = cardKitSequence;
-                cardKitSequence += 1;
-                trace.info(`abortCard: updating abort card, seq ${seqBeforeUpdate} -> ${cardKitSequence}`);
-                await updateCardKitCard({
-                    cfg,
-                    cardId: effectiveCardId,
-                    card: toCardKit2(abortCard),
-                    sequence: cardKitSequence,
-                    accountId,
-                });
-                params.runtime.log?.(`feishu[${account.accountId}]: abortCard completed (effectiveCardId=${effectiveCardId})`);
-            }
+            await finalizeActiveCard({
+                isAborted: true,
+                textOverride: accumulatedText || "Aborted.",
+                elapsedMsOverride: Date.now() - dispatchStartTime,
+            });
+            params.runtime.log?.(`feishu[${account.accountId}]: abortCard completed`);
         }
         catch (err) {
             // Best-effort — swallow errors
@@ -958,7 +956,23 @@ export function createFeishuReplyDispatcher(params) {
                         const fullThinkingText = split.reasoningText ?? rawText;
                         if (!fullThinkingText)
                             return;
-                        accumulatedReasoningText = fullThinkingText;
+                        while (fullThinkingText.length - reasoningRolloverBaseLength > thinkingRolloverChars) {
+                            await ensureCardCreated();
+                            if (terminatedByUnavailable || !cardMessageId)
+                                return;
+                            accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength, reasoningRolloverBaseLength + thinkingRolloverChars);
+                            reasoningElapsedMs = reasoningStartTime
+                                ? Date.now() - reasoningStartTime
+                                : 0;
+                            await finalizeActiveCard({
+                                textOverride: accumulatedText,
+                                reasoningTextOverride: accumulatedReasoningText,
+                            });
+                            reasoningRolloverBaseLength += thinkingRolloverChars;
+                            resetActiveCardForRollover();
+                            params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, nextBase=${reasoningRolloverBaseLength}, threshold=${thinkingRolloverChars}`);
+                        }
+                        accumulatedReasoningText = fullThinkingText.slice(reasoningRolloverBaseLength);
                         await throttledCardUpdate();
                     },
                     onPartialReply: async (payload) => {

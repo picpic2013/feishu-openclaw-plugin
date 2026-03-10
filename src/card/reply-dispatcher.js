@@ -191,26 +191,25 @@ export function createFeishuReplyDispatcher(params) {
     let reasoningStartTime = null;
     let reasoningElapsedMs = 0;
     let isReasoningPhase = false;
-    // [Custom] Thinking 话题模式状态（基于“累积 + 超阈值换卡”）
-    let thinkingThreadRootMessageId = null; // 话题根（主卡 message_id）
-    let thinkingThreadCardIds = []; // 每段 thinking 卡片 message_id
-    let thinkingThreadCardRenderedTexts = []; // 对应卡片上次已渲染文本，避免重复 patch
     // CardKit cardElement.content() is designed for streaming — low throttle.
     // im.message.patch has strict rate limits ("Update the single messages too
     // frequently" / code 230020) — needs a much higher interval.
     // [Custom] 支持配置化，不配置时保持原默认值
     const CARDKIT_THROTTLE_MS = 100; // CardKit 更新间隔（不提供配置）
     const PATCH_THROTTLE_MS = feishuCfg?.streamingThrottleMs ?? 1500; // IM patch 更新间隔，默认 1500ms
-    // [Custom] Thinking 话题模式开关（新）
-    const thinkingThreadMode = feishuCfg?.thinkingThreadMode === true;
-    const thinkingRolloverChars = Math.max(500, Number(feishuCfg?.thinkingRolloverChars ?? 8000));
-    const thinkingFinalReplyOutsideThread = feishuCfg?.thinkingFinalReplyOutsideThread !== false;
-    const mainReplyInThread = thinkingThreadMode && thinkingFinalReplyOutsideThread ? false : replyInThread;
-    // 兼容旧配置（master 历史字段）
+    // [Custom] 单卡累积 thinking：保留旧字段兼容日志，但不再启用 thread 分卡逻辑
+    const mainReplyInThread = replyInThread;
     const _deprecatedThinkingThreadedMode = feishuCfg?.thinkingThreadedMode;
     const _deprecatedThinkingPhaseThresholdMs = feishuCfg?.thinkingPhaseThresholdMs;
-    if (_deprecatedThinkingThreadedMode !== undefined || _deprecatedThinkingPhaseThresholdMs !== undefined) {
-        params.runtime.log?.(`feishu[${account.accountId}]: deprecated config detected (thinkingThreadedMode/thinkingPhaseThresholdMs). Use thinkingThreadMode/thinkingRolloverChars/thinkingFinalReplyOutsideThread.`);
+    const _deprecatedThinkingThreadMode = feishuCfg?.thinkingThreadMode;
+    const _deprecatedThinkingRolloverChars = feishuCfg?.thinkingRolloverChars;
+    const _deprecatedThinkingFinalReplyOutsideThread = feishuCfg?.thinkingFinalReplyOutsideThread;
+    if (_deprecatedThinkingThreadedMode !== undefined ||
+        _deprecatedThinkingPhaseThresholdMs !== undefined ||
+        _deprecatedThinkingThreadMode !== undefined ||
+        _deprecatedThinkingRolloverChars !== undefined ||
+        _deprecatedThinkingFinalReplyOutsideThread !== undefined) {
+        params.runtime.log?.(`feishu[${account.accountId}]: deprecated thinking thread config detected. Using single-card accumulated thinking mode.`);
     }
     /** After a long idle gap (tool call / LLM thinking), defer the first
      *  flush briefly so we accumulate enough chars for a meaningful update
@@ -959,65 +958,8 @@ export function createFeishuReplyDispatcher(params) {
                         const fullThinkingText = split.reasoningText ?? rawText;
                         if (!fullThinkingText)
                             return;
-                        if (thinkingThreadMode) {
-                            // 以主卡作为话题根，thinking 子卡都回复到同一根消息
-                            if (!thinkingThreadRootMessageId)
-                                thinkingThreadRootMessageId = cardMessageId;
-                            const totalLen = fullThinkingText.length;
-                            const neededCards = Math.max(1, Math.ceil(totalLen / thinkingRolloverChars));
-                            // 按阈值分片建卡（同一话题）
-                            while (thinkingThreadCardIds.length < neededCards) {
-                                const idx = thinkingThreadCardIds.length;
-                                const start = idx * thinkingRolloverChars;
-                                const end = Math.min(totalLen, (idx + 1) * thinkingRolloverChars);
-                                const chunkText = fullThinkingText.slice(start, end);
-                                const titlePrefix = idx > 0 ? `（续 ${idx + 1}）\n\n` : "";
-                                const reasoningCard = buildCardContent("streaming", {
-                                    text: "",
-                                    reasoningText: `${titlePrefix}${chunkText}`,
-                                });
-                                const threadReply = await sendCardFeishu({
-                                    cfg,
-                                    to: chatId,
-                                    accountId,
-                                    card: reasoningCard,
-                                    replyToMessageId: thinkingThreadRootMessageId,
-                                    replyInThread: true,
-                                });
-                                const mid = threadReply?.messageId || null;
-                                thinkingThreadCardIds.push(mid);
-                                thinkingThreadCardRenderedTexts.push(`${titlePrefix}${chunkText}`);
-                                params.runtime.log?.(`feishu[${account.accountId}]: thinking thread card created index=${idx}, msg=${mid}`);
-                            }
-                            // 只更新当前活动分片卡，避免重复刷屏
-                            const activeIdx = neededCards - 1;
-                            const activeStart = activeIdx * thinkingRolloverChars;
-                            const activeEnd = Math.min(totalLen, (activeIdx + 1) * thinkingRolloverChars);
-                            const activeChunkText = fullThinkingText.slice(activeStart, activeEnd);
-                            const activePrefix = activeIdx > 0 ? `（续 ${activeIdx + 1}）\n\n` : "";
-                            const activeRenderText = `${activePrefix}${activeChunkText}`;
-                            const activeMsgId = thinkingThreadCardIds[activeIdx];
-                            if (activeMsgId && thinkingThreadCardRenderedTexts[activeIdx] !== activeRenderText) {
-                                const reasoningCard = buildCardContent("streaming", {
-                                    text: "",
-                                    reasoningText: activeRenderText,
-                                });
-                                await updateCardFeishu({
-                                    cfg,
-                                    messageId: activeMsgId,
-                                    card: reasoningCard,
-                                    accountId,
-                                });
-                                thinkingThreadCardRenderedTexts[activeIdx] = activeRenderText;
-                            }
-                            // 主卡不显示 reasoning，避免重复
-                            accumulatedReasoningText = "";
-                        }
-                        else {
-                            // 传统模式：保持原逻辑（覆盖）
-                            accumulatedReasoningText = fullThinkingText;
-                            await throttledCardUpdate();
-                        }
+                        accumulatedReasoningText = fullThinkingText;
+                        await throttledCardUpdate();
                     },
                     onPartialReply: async (payload) => {
                         if (terminatedByUnavailable || shouldSkipForUnavailable("onPartialReply"))

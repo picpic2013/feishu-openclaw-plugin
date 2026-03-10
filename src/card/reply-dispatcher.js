@@ -974,12 +974,15 @@ export function createFeishuReplyDispatcher(params) {
 
                             if (!delta) return; // 没有新内容就跳过
 
-                            // [Custom] 智能拼接：根据句子边界决定分隔符
+                            // [Custom] 智能拼接：只有明确边界才加分隔符，否则直接拼接
                             const currentLen = accumulatedReasoningText.length;
-                            const isSentenceEnd = /[。！？.!?]$/.test(delta.trim());
+                            const trimmedDelta = delta.trim();
+                            // 有明确换行 OR 完整句子结尾才加分隔符
+                            const hasNewline = delta.endsWith('\n');
+                            const isSentenceEnd = /[。！？.!?]$/.test(trimmedDelta);
                             const separator = currentLen === 0 
                                 ? "" 
-                                : (isSentenceEnd ? "\n\n" : " ");
+                                : (hasNewline || isSentenceEnd ? "\n\n" : "");
                             const newContent = separator + delta;
                             const totalAfterAdd = currentLen + newContent.length;
 

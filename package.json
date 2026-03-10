@@ -4,16 +4,7 @@
   "description": "OpenClaw Feishu/Lark channel plugin - Enhanced with streaming replies & thinking display for group chats",
   "type": "module",
   "files": [
-    "src/",
-    "skills/",
-    "docs/",
-    "index.js",
-    "index.d.ts",
-    "index.d.ts.map",
-    "index.js.map",
-    "openclaw.plugin.json",
-    "LICENSE",
-    "README.md"
+    "**/*"
   ],
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.59.0",

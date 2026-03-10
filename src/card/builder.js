@@ -143,6 +143,8 @@ function buildFooter(text, isError) {
  */
 export function buildCardContent(state, data = {}) {
     switch (state) {
+        case "processing":
+            return buildProcessingCard();
         case "thinking":
             return buildThinkingCard();
         case "streaming":
@@ -158,6 +160,18 @@ export function buildCardContent(state, data = {}) {
 // ---------------------------------------------------------------------------
 // Private card builders
 // ---------------------------------------------------------------------------
+export function buildProcessingCard() {
+    return {
+        config: { wide_screen_mode: true, update_multi: true },
+        elements: [
+            {
+                tag: "markdown",
+                content: "⏳ 处理中...",
+                element_id: "streaming_content",
+            },
+        ],
+    };
+}
 function buildThinkingCard() {
     return {
         config: { wide_screen_mode: true, update_multi: true },

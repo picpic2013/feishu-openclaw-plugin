@@ -134,6 +134,7 @@ export function createFeishuReplyDispatcher(params) {
             });
         },
     });
+
     // ---- Chunk & render settings ----
     const textChunkLimit = core.channel.text.resolveTextChunkLimit(cfg, "feishu", accountId, { fallbackLimit: 4000 });
     const chunkMode = core.channel.text.resolveChunkMode(cfg, "feishu");
@@ -164,6 +165,9 @@ export function createFeishuReplyDispatcher(params) {
     // [Custom] 多消息模式：每个阶段发送独立消息
     // multiMessageStreaming === true 时，每个 deliver() 调用创建新消息
     const useMultiMessageMode = feishuCfg?.multiMessageStreaming === true && chatType === "group";
+    
+    // [Custom] 立即创建"处理中"卡片，让用户更快看到反馈
+    const instantCard = feishuCfg?.instantCard === true;
     
     // [Custom] 多消息模式下的消息追踪
     let lastDeliveredTextLength = 0; // 记录上次 deliver 的文本长度，用于检测新阶段
@@ -296,13 +300,25 @@ export function createFeishuReplyDispatcher(params) {
             ],
         },
     };
+    const buildStreamingCardJson = (initialContent = "") => ({
+        ...thinkingCardJson,
+        body: {
+            ...thinkingCardJson.body,
+            elements: thinkingCardJson.body.elements.map((element) => element.element_id === STREAMING_ELEMENT_ID
+                ? {
+                    ...element,
+                    content: initialContent,
+                }
+                : { ...element }),
+        },
+    });
     /**
      * Lazily create the thinking card. Safe to call from any hook — the
      * first caller triggers creation, subsequent callers await the same
      * promise. This eliminates race conditions between onReplyStart,
      * deliver, and onPartialReply.
      */
-    const ensureCardCreated = async () => {
+    const ensureCardCreated = async (initialContent = "") => {
         if (shouldSkipForUnavailable("ensureCardCreated.precheck"))
             return;
         if (!useStreamingCards || cardMessageId || cardCreationFailed || cardCompleted)
@@ -322,7 +338,7 @@ export function createFeishuReplyDispatcher(params) {
                     // Step 1: Create card entity
                     const cId = await createCardEntity({
                         cfg,
-                        card: thinkingCardJson,
+                        card: buildStreamingCardJson(initialContent),
                         accountId,
                     });
                     if (cId) {
@@ -625,9 +641,11 @@ export function createFeishuReplyDispatcher(params) {
             if (shouldSkipForUnavailable("onReplyStart")) {
                 return;
             }
-            // 流式模式也先用 typing indicator 反馈用户；
-            // 卡片延迟到 onPartialReply 确认非 NO_REPLY 后再创建。
+            // 流式模式也先用 typing indicator 反馈用户。
             await typingCallbacks.onReplyStart?.();
+            if (instantCard && useStreamingCards) {
+                await ensureCardCreated("⏳ 处理中...");
+            }
         },
         deliver: async (payload) => {
             params.runtime.log?.(`feishu[${account.accountId}] deliver called: text=${payload.text?.slice(0, 100)}`);

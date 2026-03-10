@@ -333,7 +333,7 @@ export function createFeishuReplyDispatcher(params) {
                             to: chatId,
                             cardId: cardKitCardId,
                             replyToMessageId,
-                            replyInThread: mainReplyInThread,
+                            replyInThread: replyInThread,
                             accountId,
                         });
                         cardMessageId = result.messageId;
@@ -361,7 +361,7 @@ export function createFeishuReplyDispatcher(params) {
                         to: chatId,
                         card: fallbackCard,
                         replyToMessageId,
-                        replyInThread: mainReplyInThread,
+                        replyInThread: replyInThread,
                         accountId,
                     });
                     cardMessageId = result.messageId;
@@ -714,7 +714,7 @@ export function createFeishuReplyDispatcher(params) {
                             to: chatId,
                             text: chunk,
                             replyToMessageId,
-                            replyInThread: mainReplyInThread,
+                            replyInThread: replyInThread,
                             accountId,
                         });
                     }
@@ -738,7 +738,7 @@ export function createFeishuReplyDispatcher(params) {
                             to: chatId,
                             text: chunk,
                             replyToMessageId,
-                            replyInThread: mainReplyInThread,
+                            replyInThread: replyInThread,
                             accountId,
                         });
                     }

@@ -224,7 +224,7 @@ main() {
     "enabled": true,
     "appId": "$APP_ID",
     "appSecret": "$APP_SECRET",
-    "domain": "$CHANNEL_NAME",
+    "domain": "feishu",
     "connectionMode": "websocket",
     "requireMention": true,
     "dmPolicy": "open",

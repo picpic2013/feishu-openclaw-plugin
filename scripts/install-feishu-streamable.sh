@@ -9,14 +9,11 @@
 set -e
 
 # ====== 配置区域 ======
-# 重要：这些值必须与实际加载的插件目录名一致！
-# 查看方式：ls ~/.openclaw/extensions/ | grep feishu
-
-CHANNEL_NAME="feishu-streamable"                              # channel id（必须与 manifest 声明一致）
-PLUGIN_NAME="feishu-openclaw-plugin"                          # 插件目录名（必须与 extensions/ 下的目录名一致）
-PACKAGE_NAME="@picpic2013/feishu-openclaw-plugin-streamable"  # npm 包名
-# 开发时使用本地路径（填写则优先使用本地）:
-LOCAL_PLUGIN_PATH=""
+CHANNEL_NAME="feishu-streamable"                              # 你的 channel 名字
+PLUGIN_NAME="feishu-streamable"                               # 插件目录名（对应 plugins.entries）
+PACKAGE_NAME="@picpic2013/feishu-streamable"                  # npm 包名
+# 开发时使用本地路径:
+# LOCAL_PLUGIN_PATH="/root/.openclaw/extensions/feishu-openclaw-plugin-custom"
 
 # 是否禁用官方 feishu 插件（false = 保留官方）
 DISABLE_OFFICIAL=false
@@ -157,9 +154,26 @@ main() {
         exit 1
     fi
     log_info "OpenClaw 版本: $version ✓"
+
+    # 7. 安装插件
+    log_step "2/7 安装插件..."
+    
+    if [ "$USE_LOCAL" = true ] && [ -n "$LOCAL_PLUGIN_PATH" ]; then
+        # 使用本地路径
+        local extensions_dir=$(get_extensions_dir)
+        local plugin_path="$extensions_dir/$PLUGIN_NAME"
+        log_info "链接本地插件: $LOCAL_PLUGIN_PATH -> $plugin_path"
+        mkdir -p "$extensions_dir"
+        rm -rf "$plugin_path"
+        ln -s "$LOCAL_PLUGIN_PATH" "$plugin_path"
+    elif [ -n "$PACKAGE_NAME" ]; then
+        # 从 npm 安装
+        log_info "从 npm 安装: $PACKAGE_NAME"
+        openclaw plugins install "$PACKAGE_NAME"
+    fi
     
     # 2. 获取 app 配置（交互或命令行）
-    log_step "2/7 获取飞书 App 凭证..."
+    log_step "3/7 获取飞书 App 凭证..."
     if [ -z "$APP_ID" ]; then
         log_info "请输入飞书 App ID:"
         read -r APP_ID
@@ -180,12 +194,12 @@ main() {
     log_info "App ID: $APP_ID ✓"
     
     # 3. 读取现有配置
-    log_step "3/7 读取现有配置..."
+    log_step "4/7 读取现有配置..."
     local config_json=$(read_config)
     log_info "读取现有配置 ✓"
     
     # 4. 构建 channel 配置（包含你的增强功能）
-    log_step "4/7 构建 channel 配置..."
+    log_step "5/7 构建 channel 配置..."
     
     local new_channel_config=$(cat <<EOF
 {
@@ -197,7 +211,7 @@ main() {
     "requireMention": true,
     "dmPolicy": "open",
     "groupPolicy": "open",
-    "allowFrom": [],
+    "allowFrom": ["*"],
     "groupAllowFrom": [],
     "streaming": $STREAMING,
     "renderMode": "$RENDER_MODE",
@@ -220,7 +234,7 @@ EOF
     log_info "Channel 配置构建完成 ✓"
     
     # 5. 合并配置
-    log_step "5/7 合并配置..."
+    log_step "6/7 合并配置..."
     
     if command -v jq &> /dev/null; then
         # 使用 jq 合并配置
@@ -249,30 +263,11 @@ EOF
     fi
     
     # 6. 写入配置
-    log_step "6/7 写入配置..."
+    log_step "7/7 写入配置..."
     write_config "$config_json"
     log_info "配置写入: $(get_config_path) ✓"
     
-    # 7. 安装插件
-    log_step "7/7 安装插件..."
     
-    if [ "$USE_LOCAL" = true ] && [ -n "$LOCAL_PLUGIN_PATH" ]; then
-        # 使用本地路径
-        local extensions_dir=$(get_extensions_dir)
-        local plugin_path="$extensions_dir/$PLUGIN_NAME"
-        log_info "链接本地插件: $LOCAL_PLUGIN_PATH -> $plugin_path"
-        mkdir -p "$extensions_dir"
-        rm -rf "$plugin_path"
-        ln -s "$LOCAL_PLUGIN_PATH" "$plugin_path"
-    elif [ -n "$PACKAGE_NAME" ]; then
-        # 从 npm 安装
-        log_info "从 npm 安装: $PACKAGE_NAME"
-        openclaw plugins install "$PACKAGE_NAME"
-        
-        # 注意：安装后需要确保目录名与 PLUGIN_NAME 一致
-        # 如果不一致，需要手动创建 symlink:
-        # ln -s ~/.openclaw/extensions/<实际目录名> ~/.openclaw/extensions/$PLUGIN_NAME
-    fi
     
     log_info "插件安装完成 ✓"
     

@@ -138,6 +138,15 @@ main() {
     log_info "插件名称: $PLUGIN_NAME"
     log_info "包名: $PACKAGE_NAME"
     log_info ""
+
+    # 0. 检查必要依赖
+    log_step "0/7 检查系统依赖..."
+    if ! command -v jq &> /dev/null; then
+        log_error "未检测到 'jq'。此脚本需要 jq 来处理 JSON 配置。"
+        log_info "请先安装 jq (例如: apt install jq 或 yum install jq)"
+        exit 1
+    fi
+    log_info "依赖检查 (jq) ✓"
     
     # 1. 检查 OpenClaw 版本
     log_step "1/7 检查 OpenClaw 版本..."
@@ -155,8 +164,8 @@ main() {
     fi
     log_info "OpenClaw 版本: $version ✓"
 
-    # 7. 安装插件
-    log_step "2/7 安装插件..."
+    # 2. 安装插件
+    log_step "2/7 准备插件环境..."
     
     if [ "$USE_LOCAL" = true ] && [ -n "$LOCAL_PLUGIN_PATH" ]; then
         # 使用本地路径
@@ -179,11 +188,12 @@ main() {
         fi
     fi
     
-    # 2. 获取 app 配置（交互或命令行）
+    # 3. 获取 app 配置（交互或命令行）
     log_step "3/7 获取飞书 App 凭证..."
     if [ -z "$APP_ID" ]; then
         log_info "请输入飞书 App ID:"
-        read -r APP_ID
+        # 使用 < /dev/tty 确保在管道执行时依然可以交互
+        read -r APP_ID < /dev/tty
     fi
     if [ -z "$APP_ID" ]; then
         log_error "App ID 不能为空"
@@ -192,7 +202,8 @@ main() {
     
     if [ -z "$APP_SECRET" ]; then
         log_info "请输入飞书 App Secret:"
-        read -r APP_SECRET
+        # 使用 < /dev/tty 确保在管道执行时依然可以交互
+        read -r APP_SECRET < /dev/tty
     fi
     if [ -z "$APP_SECRET" ]; then
         log_error "App Secret 不能为空"
@@ -200,12 +211,12 @@ main() {
     fi
     log_info "App ID: $APP_ID ✓"
     
-    # 3. 读取现有配置
+    # 4. 读取现有配置
     log_step "4/7 读取现有配置..."
     local config_json=$(read_config)
     log_info "读取现有配置 ✓"
     
-    # 4. 构建 channel 配置（包含你的增强功能）
+    # 5. 构建 channel 配置
     log_step "5/7 构建 channel 配置..."
     
     local new_channel_config=$(cat <<EOF
@@ -240,41 +251,32 @@ EOF
 )
     log_info "Channel 配置构建完成 ✓"
     
-    # 5. 合并配置
+    # 6. 合并配置
     log_step "6/7 合并配置..."
     
     if command -v jq &> /dev/null; then
-        # 使用 jq 合并配置
         config_json=$(echo "$config_json" | jq \
             --arg channel "$CHANNEL_NAME" \
             --argjson channel_config "$new_channel_config" \
             '
-            # 添加 channel
             .channels[$channel] = $channel_config |
-            # 确保 plugins 结构存在
             if .plugins == null then .plugins = {} else . end |
             if .plugins.allow == null then .plugins.allow = [] else . end |
             if .plugins.entries == null then .plugins.entries = {} else . end |
-            # 添加插件到 allow 列表（不重复）
             .plugins.allow += ["'"$PLUGIN_NAME"'"] | .plugins.allow = (.plugins.allow | unique) |
-            # 启用插件
             .plugins.entries["'"$PLUGIN_NAME"'"] = {"enabled": true}
             '
         )
         log_info "配置合并完成 (jq) ✓"
     else
-        log_warn "jq 未安装，使用简单配置覆盖"
-        # 简单处理：只更新 channel 部分
+        log_warn "jq 未安装，尝试使用 sed 进行简单替换..."
         config_json=$(echo "$config_json" | sed 's/"channels": {/"channels": {\n    "'"$CHANNEL_NAME"'": '"$new_channel_config"'/,/')
-        # 这个简化版本可能不太准确，建议安装 jq
     fi
     
-    # 6. 写入配置
+    # 7. 写入配置
     log_step "7/7 写入配置..."
     write_config "$config_json"
     log_info "配置写入: $(get_config_path) ✓"
-    
-    
     
     log_info "插件安装完成 ✓"
     
@@ -294,11 +296,9 @@ EOF
         log_info ""
         log_info "使用方式："
         log_info "  openclaw gateway start"
-        log_info "  然后在飞书中搜索你的机器人并开始聊天"
     else
         log_warn ""
-        log_warn "安装完成，但健康检查未通过"
-        log_warn "请运行 'openclaw doctor' 诊断问题"
+        log_warn "安装完成，但健康检查未通过，请检查飞书 App 凭证是否正确。"
     fi
 }
 

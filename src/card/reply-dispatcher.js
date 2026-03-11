@@ -11,6 +11,7 @@
 import { createReplyPrefixContext, createTypingCallbacks, logTypingFailure, SILENT_REPLY_TOKEN, } from "openclaw/plugin-sdk";
 import { getLarkAccount } from "../core/accounts.js";
 import { resolveFooterConfig } from "../core/footer-config.js";
+import { normalizeFeishuRuntimeConfig } from "../core/feishu-config.js";
 import { LarkClient } from "../core/lark-client.js";
 import { trace } from "../core/trace.js";
 import { sendMessageFeishu, sendMarkdownCardFeishu, sendCardFeishu, updateCardFeishu, } from "../messaging/outbound/send.js";
@@ -136,10 +137,11 @@ export function createFeishuReplyDispatcher(params) {
     });
 
     // ---- Chunk & render settings ----
-    const textChunkLimit = core.channel.text.resolveTextChunkLimit(cfg, "feishu", accountId, { fallbackLimit: 4000 });
-    const chunkMode = core.channel.text.resolveChunkMode(cfg, "feishu");
+    const runtimeCfg = normalizeFeishuRuntimeConfig(cfg);
+    const textChunkLimit = core.channel.text.resolveTextChunkLimit(runtimeCfg, "feishu", accountId, { fallbackLimit: 4000 });
+    const chunkMode = core.channel.text.resolveChunkMode(runtimeCfg, "feishu");
     const tableMode = core.channel.text.resolveMarkdownTableMode({
-        cfg,
+        cfg: runtimeCfg,
         channel: "feishu",
     });
     // ---- Reply mode resolution ----

@@ -70,7 +70,7 @@ export function resolveFeishuGroupConfig(params) {
  * corresponds to the given group context.
  */
 export function resolveFeishuGroupToolPolicy(params) {
-    const cfg = params.cfg.channels?.feishu;
+    const cfg = getEffectiveFeishuSection(params.cfg);
     if (!cfg) {
         return undefined;
     }
@@ -120,3 +120,4 @@ export function resolveFeishuReplyPolicy(params) {
     return { requireMention };
 }
 //# sourceMappingURL=policy.js.map
+import { getEffectiveFeishuSection } from "../../core/feishu-config.js";

@@ -23,6 +23,7 @@
  *       `"disabled"` → block all senders
  */
 import { LarkClient } from "../../core/lark-client.js";
+import { FEISHU_STREAMABLE_CHANNEL_KEY } from "../../core/feishu-config.js";
 import { sendMessageFeishu } from "../outbound/send.js";
 import { resolveFeishuGroupConfig, resolveFeishuAllowlistMatch, isFeishuGroupAllowed, } from "./policy.js";
 import { mentionedBot } from "./mention.js";
@@ -83,12 +84,12 @@ function checkGroupGate(params) {
         log(`feishu[${account.accountId}]: ⚠️  groupAllowFrom contains chat_id entries ` +
             `(${legacyChatIds.join(", ")}). groupAllowFrom is for SENDER filtering ` +
             `(open_ids like ou_xxx). Please move chat_ids to "groups" config instead:\n` +
-            `  channels.feishu.groups: {\n` +
+            `  channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.groups: {\n` +
             legacyChatIds.map((id) => `    "${id}": {},`).join("\n") +
             `\n  }`);
     }
     // ---- Layer 1: Group-level access (SDK) ----
-    // The SDK reads `channels.feishu.groups` as an allowlist of group IDs.
+    // The SDK reads the effective Feishu groups config as an allowlist of group IDs.
     // - No groups configured + groupPolicy "open" → any group passes
     // - groupPolicy "allowlist" (or groups configured) → only listed groups pass
     // - groupPolicy "disabled" → all groups blocked

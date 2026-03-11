@@ -7,6 +7,7 @@
   * 提供所有工具通用的模式，减少重复代码。
  */
 import { getEnabledLarkAccounts, getLarkAccount } from "../core/accounts.js";
+import { FEISHU_STREAMABLE_CHANNEL_KEY } from "../core/feishu-config.js";
 import { LarkClient } from "../core/lark-client.js";
 import { getTraceContext } from "../core/trace.js";
 import { createToolClient } from "../core/tool-client.js";
@@ -56,7 +57,7 @@ export function createClientGetter(config, accountIndex = 0) {
         const accounts = getEnabledLarkAccounts(config);
         if (accounts.length === 0) {
             throw new Error("No enabled Feishu accounts configured. " +
-                "Please add appId and appSecret in config under channels.feishu");
+                `Please add appId and appSecret in config under channels.${FEISHU_STREAMABLE_CHANNEL_KEY}`);
         }
         if (accountIndex >= accounts.length) {
             throw new Error(`Requested account index ${accountIndex} but only ${accounts.length} accounts available`);
@@ -94,7 +95,7 @@ export function getFirstAccount(config) {
     const accounts = getEnabledLarkAccounts(config);
     if (accounts.length === 0) {
         throw new Error("No enabled Feishu accounts configured. " +
-            "Please add appId and appSecret in config under channels.feishu");
+            `Please add appId and appSecret in config under channels.${FEISHU_STREAMABLE_CHANNEL_KEY}`);
     }
     return accounts[0];
 }

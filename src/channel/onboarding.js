@@ -10,6 +10,7 @@
  */
 import { addWildcardAllowFrom, DEFAULT_ACCOUNT_ID, formatDocsLink, } from "openclaw/plugin-sdk";
 import { getLarkCredentials } from "../core/accounts.js";
+import { getEffectiveFeishuSection, updateEffectiveFeishuSection, FEISHU_STREAMABLE_CHANNEL_KEY, } from "../core/feishu-config.js";
 import { probeFeishu } from "./probe.js";
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,68 +21,38 @@ const channel = "feishu";
 // ---------------------------------------------------------------------------
 function setFeishuDmPolicy(cfg, dmPolicy) {
     const allowFrom = dmPolicy === "open"
-        ? addWildcardAllowFrom(cfg.channels?.feishu?.allowFrom)?.map((entry) => String(entry))
+        ? addWildcardAllowFrom(getEffectiveFeishuSection(cfg)?.allowFrom)?.map((entry) => String(entry))
         : undefined;
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...cfg.channels?.feishu,
-                dmPolicy,
-                ...(allowFrom ? { allowFrom } : {}),
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        dmPolicy,
+        ...(allowFrom ? { allowFrom } : {}),
+    }));
 }
 function setFeishuAllowFrom(cfg, allowFrom) {
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...cfg.channels?.feishu,
-                allowFrom,
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        allowFrom,
+    }));
 }
 function setFeishuGroupPolicy(cfg, groupPolicy) {
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...cfg.channels?.feishu,
-                enabled: true,
-                groupPolicy,
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        enabled: true,
+        groupPolicy,
+    }));
 }
 function setFeishuGroupAllowFrom(cfg, groupAllowFrom) {
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...cfg.channels?.feishu,
-                groupAllowFrom,
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        groupAllowFrom,
+    }));
 }
 function setFeishuGroups(cfg, groups) {
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...cfg.channels?.feishu,
-                groups,
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        groups,
+    }));
 }
 // ---------------------------------------------------------------------------
 // Input helpers
@@ -107,7 +78,7 @@ async function noteFeishuCredentialHelp(prompter) {
     ].join("\n"), "Feishu credentials");
 }
 async function promptFeishuAllowFrom(params) {
-    const existing = params.cfg.channels?.feishu?.allowFrom ?? [];
+    const existing = getEffectiveFeishuSection(params.cfg)?.allowFrom ?? [];
     await params.prompter.note([
         "Allowlist Feishu DMs by open_id or user_id.",
         "You can find user open_id in Feishu admin console or via API.",
@@ -144,9 +115,9 @@ async function promptFeishuAllowFrom(params) {
 const dmPolicy = {
     label: "Feishu",
     channel,
-    policyKey: "channels.feishu.dmPolicy",
-    allowFromKey: "channels.feishu.allowFrom",
-    getCurrent: (cfg) => cfg.channels?.feishu?.dmPolicy ?? "pairing",
+    policyKey: `channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.dmPolicy`,
+    allowFromKey: `channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.allowFrom`,
+    getCurrent: (cfg) => getEffectiveFeishuSection(cfg)?.dmPolicy ?? "pairing",
     setPolicy: (cfg, policy) => setFeishuDmPolicy(cfg, policy),
     promptAllowFrom: promptFeishuAllowFrom,
 };
@@ -159,7 +130,7 @@ export const feishuOnboardingAdapter = {
     // getStatus
     // -----------------------------------------------------------------------
     getStatus: async ({ cfg }) => {
-        const feishuCfg = cfg.channels?.feishu;
+        const feishuCfg = getEffectiveFeishuSection(cfg);
         const configured = Boolean(getLarkCredentials(feishuCfg));
         // Attempt a live probe when credentials are present.
         let probeResult = null;
@@ -193,7 +164,7 @@ export const feishuOnboardingAdapter = {
     // configure
     // -----------------------------------------------------------------------
     configure: async ({ cfg, prompter }) => {
-        const feishuCfg = cfg.channels?.feishu;
+        const feishuCfg = getEffectiveFeishuSection(cfg);
         const resolved = getLarkCredentials(feishuCfg);
         const hasConfigCreds = Boolean(feishuCfg?.appId?.trim() && feishuCfg?.appSecret?.trim());
         const canUseEnv = Boolean(!hasConfigCreds &&
@@ -217,7 +188,7 @@ export const feishuOnboardingAdapter = {
                     ...next,
                     channels: {
                         ...next.channels,
-                        feishu: { ...next.channels?.feishu, enabled: true },
+                        [FEISHU_STREAMABLE_CHANNEL_KEY]: { ...getEffectiveFeishuSection(next), enabled: true },
                     },
                 };
             }
@@ -264,15 +235,15 @@ export const feishuOnboardingAdapter = {
                 ...next,
                 channels: {
                     ...next.channels,
-                    feishu: {
-                        ...next.channels?.feishu,
+                    [FEISHU_STREAMABLE_CHANNEL_KEY]: {
+                        ...getEffectiveFeishuSection(next),
                         enabled: true,
                         appId,
                         appSecret,
                     },
                 },
             };
-            const testCfg = next.channels?.feishu;
+            const testCfg = getEffectiveFeishuSection(next);
             try {
                 const probe = await probeFeishu(testCfg);
                 if (probe.ok) {
@@ -287,7 +258,7 @@ export const feishuOnboardingAdapter = {
             }
         }
         // --- Domain selection ---
-        const currentDomain = next.channels?.feishu?.domain ?? "feishu";
+        const currentDomain = getEffectiveFeishuSection(next)?.domain ?? "feishu";
         const domain = await prompter.select({
             message: "Which Feishu domain?",
             options: [
@@ -301,8 +272,8 @@ export const feishuOnboardingAdapter = {
                 ...next,
                 channels: {
                     ...next.channels,
-                    feishu: {
-                        ...next.channels?.feishu,
+                    [FEISHU_STREAMABLE_CHANNEL_KEY]: {
+                        ...getEffectiveFeishuSection(next),
                         domain: domain,
                     },
                 },
@@ -318,7 +289,7 @@ export const feishuOnboardingAdapter = {
         //
         // Layer 2: Which SENDERS within allowed groups can trigger the bot?
         //   groupAllowFrom filters by sender open_id (ou_xxx).
-        const existingGroupAllowFrom = next.channels?.feishu?.groupAllowFrom ??
+        const existingGroupAllowFrom = getEffectiveFeishuSection(next)?.groupAllowFrom ??
             [];
         const legacyChatIds = existingGroupAllowFrom.filter((e) => String(e).startsWith("oc_"));
         const senderAllowFrom = existingGroupAllowFrom.filter((e) => !String(e).startsWith("oc_"));
@@ -331,7 +302,7 @@ export const feishuOnboardingAdapter = {
                 "New semantic: groupAllowFrom is for SENDER filtering (open_ids like ou_xxx).",
                 "",
                 "Recommended migration:",
-                `  1. Move chat_ids (oc_xxx) → channels.feishu.groups`,
+                `  1. Move chat_ids (oc_xxx) → channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.groups`,
                 `  2. Keep sender IDs (ou_xxx) in groupAllowFrom`,
             ].join("\n"), "Legacy config detected");
             const migrate = await prompter.confirm({
@@ -342,7 +313,7 @@ export const feishuOnboardingAdapter = {
                 // Build new groups config from legacy chat_ids
                 // Legacy semantic: chat_id in groupAllowFrom meant "allow this group for any sender"
                 // So migrated groups need groupPolicy: "open" to preserve this behavior
-                const existingGroups = next.channels?.feishu?.groups ?? {};
+                const existingGroups = getEffectiveFeishuSection(next)?.groups ?? {};
                 const migratedGroups = {
                     ...existingGroups,
                 };
@@ -387,7 +358,7 @@ export const feishuOnboardingAdapter = {
                     label: "Disabled — no group interactions",
                 },
             ],
-            initialValue: next.channels?.feishu?.groupPolicy ??
+            initialValue: getEffectiveFeishuSection(next)?.groupPolicy ??
                 "allowlist",
         });
         if (groupPolicy) {
@@ -396,7 +367,7 @@ export const feishuOnboardingAdapter = {
         // --- Group sender allowlist ---
         if (groupPolicy !== "disabled") {
             // After migration, groupAllowFrom should only contain sender IDs (ou_xxx)
-            const existing = next.channels?.feishu?.groupAllowFrom ??
+            const existing = getEffectiveFeishuSection(next)?.groupAllowFrom ??
                 [];
             const entry = await prompter.text({
                 message: "Group sender allowlist — which users can trigger the bot in allowed groups? (user open_ids)",
@@ -426,12 +397,9 @@ export const feishuOnboardingAdapter = {
     // -----------------------------------------------------------------------
     // disable
     // -----------------------------------------------------------------------
-    disable: (cfg) => ({
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: { ...cfg.channels?.feishu, enabled: false },
-        },
-    }),
+    disable: (cfg) => updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        enabled: false,
+    })),
 };
 //# sourceMappingURL=onboarding.js.map

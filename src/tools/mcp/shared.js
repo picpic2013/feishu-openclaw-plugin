@@ -7,6 +7,7 @@
  */
 import { createToolContext, formatToolResult } from "../helpers.js";
 import { handleInvokeErrorWithAutoAuth } from "../oapi/helpers.js";
+import { getEffectiveFeishuSection } from "../../core/feishu-config.js";
 import { getUserAgent } from "../../core/version.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,10 +23,7 @@ export function isRecord(v) {
 export function extractMcpUrlFromConfig(cfg) {
     if (!isRecord(cfg))
         return undefined;
-    const channels = cfg.channels;
-    if (!isRecord(channels))
-        return undefined;
-    const feishu = channels.feishu;
+    const feishu = getEffectiveFeishuSection(cfg);
     if (!isRecord(feishu))
         return undefined;
     const url = feishu.mcpEndpoint;
@@ -72,7 +70,7 @@ export function setMcpEndpointOverride(endpoint) {
 }
 function readMcpUrlFromOpenclawJson() {
     // 优先读取工作目录下的 `.openclaw/openclaw.json`
-    // 约定：channels.feishu.mcpEndpoint（兼容旧字段 mcp_url）
+    // 约定：channels.feishu-streamable.mcpEndpoint（兼容旧字段 mcp_url）
     try {
         const p = path.join(process.cwd(), ".openclaw", "openclaw.json");
         if (!fs.existsSync(p))

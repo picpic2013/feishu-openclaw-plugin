@@ -10,32 +10,20 @@
  * (nested under `accounts`).
  */
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { deleteFeishuConfigSections, updateEffectiveFeishuSection, } from "../core/feishu-config.js";
 /** Generic Feishu account config merge. */
 function mergeFeishuAccountConfig(cfg, accountId, patch) {
     const isDefault = !accountId || accountId === DEFAULT_ACCOUNT_ID;
     if (isDefault) {
-        return {
-            ...cfg,
-            channels: {
-                ...cfg.channels,
-                feishu: { ...cfg.channels?.feishu, ...patch },
-            },
-        };
+        return updateEffectiveFeishuSection(cfg, (section) => ({ ...section, ...patch }));
     }
-    const feishuCfg = cfg.channels?.feishu;
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...feishuCfg,
-                accounts: {
-                    ...feishuCfg?.accounts,
-                    [accountId]: { ...feishuCfg?.accounts?.[accountId], ...patch },
-                },
-            },
+    return updateEffectiveFeishuSection(cfg, (section) => ({
+        ...section,
+        accounts: {
+            ...section?.accounts,
+            [accountId]: { ...section?.accounts?.[accountId], ...patch },
         },
-    };
+    }));
 }
 /** Set the `enabled` flag on a Feishu account. */
 export function setAccountEnabled(cfg, accountId, enabled) {
@@ -49,31 +37,15 @@ export function applyAccountConfig(cfg, accountId, patch) {
 export function deleteAccount(cfg, accountId) {
     const isDefault = !accountId || accountId === DEFAULT_ACCOUNT_ID;
     if (isDefault) {
-        // Delete entire feishu config
-        const next = { ...cfg };
-        const nextChannels = { ...cfg.channels };
-        delete nextChannels.feishu;
-        if (Object.keys(nextChannels).length > 0) {
-            next.channels = nextChannels;
-        }
-        else {
-            delete next.channels;
-        }
-        return next;
+        return deleteFeishuConfigSections(cfg);
     }
-    // Delete specific account from accounts
-    const feishuCfg = cfg.channels?.feishu;
-    const accounts = { ...feishuCfg?.accounts };
-    delete accounts[accountId];
-    return {
-        ...cfg,
-        channels: {
-            ...cfg.channels,
-            feishu: {
-                ...feishuCfg,
-                accounts: Object.keys(accounts).length > 0 ? accounts : undefined,
-            },
-        },
-    };
+    return updateEffectiveFeishuSection(cfg, (section) => {
+        const accounts = { ...section?.accounts };
+        delete accounts[accountId];
+        return {
+            ...section,
+            accounts: Object.keys(accounts).length > 0 ? accounts : undefined,
+        };
+    });
 }
 //# sourceMappingURL=config-adapter.js.map

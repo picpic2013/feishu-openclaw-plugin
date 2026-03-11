@@ -4,17 +4,18 @@
  *
  * Lark multi-account management.
  *
- * Account overrides live under `cfg.channels.feishu.accounts`.
+ * Account overrides live under the effective Feishu section accounts map.
  * Each account may override any top-level Feishu config field;
  * unset fields fall back to the top-level defaults.
  */
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId, } from "openclaw/plugin-sdk";
+import { getEffectiveFeishuSection, } from "./feishu-config.js";
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-/** Extract the `channels.feishu` section from the top-level config. */
+/** Extract the effective Feishu section from the top-level config. */
 function getLarkConfig(cfg) {
-    return cfg?.channels?.feishu;
+    return getEffectiveFeishuSection(cfg);
 }
 /** Return the per-account override map, if present. */
 function getAccountMap(section) {

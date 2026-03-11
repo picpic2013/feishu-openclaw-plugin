@@ -20,6 +20,7 @@ import { sendMessageFeishu } from "../messaging/outbound/send.js";
 import { normalizeFeishuTarget, looksLikeFeishuId } from "../core/targets.js";
 import { triggerOnboarding } from "../tools/onboarding-auth.js";
 import { setAccountEnabled, applyAccountConfig, deleteAccount } from "./config-adapter.js";
+import { FEISHU_CHANNEL_KEY, FEISHU_STREAMABLE_CHANNEL_KEY, } from "../core/feishu-config.js";
 // ---------------------------------------------------------------------------
 // Meta
 // ---------------------------------------------------------------------------
@@ -99,7 +100,7 @@ export const feishuPlugin = {
     // -------------------------------------------------------------------------
     // Reload
     // -------------------------------------------------------------------------
-    reload: { configPrefixes: ["channels.feishu"] },
+    reload: { configPrefixes: [`channels.${FEISHU_CHANNEL_KEY}`, `channels.${FEISHU_STREAMABLE_CHANNEL_KEY}`] },
     // -------------------------------------------------------------------------
     // Config schema (JSON Schema)
     // -------------------------------------------------------------------------
@@ -234,7 +235,7 @@ export const feishuPlugin = {
                 return [];
             }
             return [
-                `- Feishu[${account.accountId}] groups: groupPolicy="open" allows any group to interact (mention-gated). To restrict which groups are allowed, set groupPolicy="allowlist" and list group IDs in channels.feishu.groups. To restrict which senders can trigger the bot, set channels.feishu.groupAllowFrom with user open_ids (ou_xxx).`,
+                `- Feishu[${account.accountId}] groups: groupPolicy="open" allows any group to interact (mention-gated). To restrict which groups are allowed, set groupPolicy="allowlist" and list group IDs in channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.groups. To restrict which senders can trigger the bot, set channels.${FEISHU_STREAMABLE_CHANNEL_KEY}.groupAllowFrom with user open_ids (ou_xxx).`,
             ];
         },
     },

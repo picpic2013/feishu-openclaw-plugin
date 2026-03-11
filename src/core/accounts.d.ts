@@ -4,7 +4,7 @@
  *
  * Lark multi-account management.
  *
- * Account overrides live under `cfg.channels.feishu.accounts`.
+ * Account overrides live under the effective Feishu section accounts map.
  * Each account may override any top-level Feishu config field;
  * unset fields fall back to the top-level defaults.
  */

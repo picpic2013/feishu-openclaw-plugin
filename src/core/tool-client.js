@@ -30,6 +30,7 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { getLarkAccount, getEnabledLarkAccounts } from "./accounts.js";
 import { LarkClient } from "./lark-client.js";
+import { FEISHU_STREAMABLE_CHANNEL_KEY } from "./feishu-config.js";
 import { getTraceContext, feishuFetch } from "./trace.js";
 import { callWithUAT, NeedAuthorizationError } from "./uat-client.js";
 import { getStoredToken } from "./token-store.js";
@@ -463,7 +464,7 @@ export function createToolClient(config, accountIndex = 0) {
         const accounts = getEnabledLarkAccounts(config);
         if (accounts.length === 0) {
             throw new Error("No enabled Feishu accounts configured. " +
-                "Please add appId and appSecret in config under channels.feishu");
+                `Please add appId and appSecret in config under channels.${FEISHU_STREAMABLE_CHANNEL_KEY}`);
         }
         if (accountIndex >= accounts.length) {
             throw new Error(`Requested account index ${accountIndex} but only ${accounts.length} accounts available`);

@@ -162,6 +162,7 @@ export function buildCardContent(state, data = {}) {
 // ---------------------------------------------------------------------------
 export function buildProcessingCard() {
     return {
+        schema: "2.0",
         config: { wide_screen_mode: true, update_multi: true },
         elements: [
             {
@@ -174,6 +175,7 @@ export function buildProcessingCard() {
 }
 function buildThinkingCard() {
     return {
+        schema: "2.0",
         config: { wide_screen_mode: true, update_multi: true },
         elements: [
             {
@@ -217,6 +219,7 @@ function buildStreamingCard(partialText, toolCalls, reasoningText) {
         });
     }
     return {
+        schema: "2.0",
         config: { wide_screen_mode: true, update_multi: true },
         elements,
     };
@@ -302,6 +305,7 @@ function buildCompleteCard(fullText, toolCalls, elapsedMs, isError, reasoningTex
         ? { content: summaryText.slice(0, 120) }
         : undefined;
     return {
+        schema: "2.0",
         config: { wide_screen_mode: true, update_multi: true, summary },
         elements,
     };
@@ -369,6 +373,7 @@ function buildConfirmCard(confirmData) {
         ],
     });
     return {
+        schema: "2.0",
         config: { wide_screen_mode: true, update_multi: true },
         header: {
             title: {

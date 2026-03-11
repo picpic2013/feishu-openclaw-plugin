@@ -168,8 +168,15 @@ main() {
         ln -s "$LOCAL_PLUGIN_PATH" "$plugin_path"
     elif [ -n "$PACKAGE_NAME" ]; then
         # 从 npm 安装
-        log_info "从 npm 安装: $PACKAGE_NAME"
-        openclaw plugins install "$PACKAGE_NAME"
+        local extensions_dir=$(get_extensions_dir)
+        local plugin_path="$extensions_dir/$PLUGIN_NAME"
+
+        if [ -d "$plugin_path" ]; then
+            log_info "插件 $PLUGIN_NAME 已存在于 $plugin_path，跳过安装。"
+        else
+            log_info "从 npm 安装: $PACKAGE_NAME"
+            openclaw plugins install "$PACKAGE_NAME"
+        fi
     fi
     
     # 2. 获取 app 配置（交互或命令行）

@@ -1089,6 +1089,7 @@ export function createFeishuReplyDispatcher(params) {
                                 // 重置状态，创建新卡
                                 reasoningRolloverBaseLength = 0;
                                 accumulatedReasoningText = delta; // 新卡从增量开始
+                                lastSentReasoningText = delta; // 避免后续去重检查误触发空更新
                                 resetActiveCardForRollover();
                                 params.runtime.log?.(`feishu[${account.accountId}]: thinking rollover triggered, new card created`);
                             } else {

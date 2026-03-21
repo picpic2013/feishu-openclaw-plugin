@@ -216,6 +216,10 @@ export function createFeishuReplyDispatcher(params) {
      *  instead of sending only 1-2 characters. */
     const LONG_GAP_THRESHOLD_MS = 2000;
     const BATCH_AFTER_GAP_MS = feishuCfg?.streamingBatchMs ?? 300; // 长空闲后批量延迟，默认 300ms
+    // [Custom] CardKit 流式心跳保活：防止服务端因长空闲关闭会话
+    const STREAMING_HEARTBEAT_MS = Math.max(1000, Number(feishuCfg?.streamingHeartbeatMs ?? 15000)); // 心跳间隔，默认 15s
+    const STREAMING_HEARTBEAT_RETRY_MS = Math.max(100, Number(feishuCfg?.streamingHeartbeatRetryMs ?? 1000)); // 心跳失败重试间隔，默认 1s
+    const STREAMING_HEARTBEAT_MAX_RETRIES = Math.max(0, Number(feishuCfg?.streamingHeartbeatMaxRetries ?? 3)); // 心跳失败最多重试次数，默认 3
     const EMPTY_REPLY_FALLBACK_TEXT = "Done.";
     // ---- CardKit streaming state ----
     // When available, the CardKit `cardElement.content()` API provides
@@ -224,6 +228,9 @@ export function createFeishuReplyDispatcher(params) {
     let originalCardKitCardId = null;
     let cardKitSequence = 0;
     let pendingFlushTimer = null;
+    // [Custom] CardKit 流式心跳保活状态
+    let heartbeatTimer = null;
+    let heartbeatRetryCount = 0;
     let terminatedByUnavailable = false;
     const dispatchStartTime = Date.now();
     const terminateDueToUnavailable = (source, err) => {
@@ -512,6 +519,8 @@ export function createFeishuReplyDispatcher(params) {
                     flushCardUpdate();
                 }, 0);
             }
+            // [Custom] 每次 flush 成功后调度心跳，防止 CardKit 流式会话因长空闲被关闭
+            scheduleHeartbeat();
         }
     };
     /**
@@ -558,11 +567,88 @@ export function createFeishuReplyDispatcher(params) {
         // If a deferred flush is already scheduled, do nothing — it will
         // pick up the latest accumulatedText when it fires.
     };
+    // ---- CardKit Streaming Heartbeat (keepalive) ----
+    /**
+     * [Custom] Schedule the next heartbeat if CardKit streaming is active.
+     * Called after every successful flushCardUpdate to keep the session alive.
+     */
+    const scheduleHeartbeat = () => {
+        if (!useStreamingCards || !cardKitCardId || cardCompleted || aborted)
+            return;
+        if (heartbeatTimer) {
+            clearTimeout(heartbeatTimer);
+        }
+        heartbeatTimer = setTimeout(() => {
+            heartbeatTimer = null;
+            sendHeartbeat();
+        }, STREAMING_HEARTBEAT_MS);
+    };
+    /**
+     * [Custom] Send a heartbeat flush to keep the CardKit streaming session alive.
+     * Retries on failure up to STREAMING_HEARTBEAT_MAX_RETRIES times.
+     */
+    const sendHeartbeat = async () => {
+        if (!cardKitCardId || cardCompleted || aborted) {
+            heartbeatRetryCount = 0;
+            return;
+        }
+        // Skip heartbeat if current accumulated text is just NO_REPLY prefix
+        if (!accumulatedText || SILENT_REPLY_TOKEN.startsWith(accumulatedText.trim())) {
+            scheduleHeartbeat();
+            return;
+        }
+        try {
+            const prevSeq = cardKitSequence;
+            cardKitSequence += 1;
+            trace.debug(`heartbeat: sending flush, seq ${prevSeq} -> ${cardKitSequence}`);
+            await streamCardContent({
+                cfg,
+                cardId: cardKitCardId,
+                elementId: STREAMING_ELEMENT_ID,
+                content: optimizeMarkdownStyle(accumulatedText),
+                sequence: cardKitSequence,
+                accountId,
+            });
+            heartbeatRetryCount = 0;
+            lastCardUpdateTime = Date.now();
+            trace.debug(`heartbeat: success, seq=${cardKitSequence}`);
+            // Schedule next heartbeat after successful heartbeat
+            scheduleHeartbeat();
+        }
+        catch (err) {
+            const apiCode = err?.response?.data?.code;
+            params.runtime.log?.(`feishu[${account.accountId}]: heartbeat failed (attempt ${heartbeatRetryCount + 1}/${STREAMING_HEARTBEAT_MAX_RETRIES}, apiCode=${apiCode})`);
+            trace.warn(`heartbeat failed: code=${apiCode}, attempt=${heartbeatRetryCount + 1}`);
+            if (heartbeatRetryCount < STREAMING_HEARTBEAT_MAX_RETRIES) {
+                heartbeatRetryCount++;
+                heartbeatTimer = setTimeout(() => {
+                    heartbeatTimer = null;
+                    sendHeartbeat();
+                }, STREAMING_HEARTBEAT_RETRY_MS);
+            }
+            else {
+                // Max retries exceeded — disable CardKit, fall back to IM patch
+                heartbeatRetryCount = 0;
+                params.runtime.log?.(`feishu[${account.accountId}]: heartbeat max retries (${STREAMING_HEARTBEAT_MAX_RETRIES}) exceeded, falling back to IM patch`);
+                cardKitCardId = null;
+                heartbeatTimer = null;
+            }
+        }
+    };
+    /** [Custom] Clear heartbeat timer. Called when card is finalized or aborted. */
+    const clearHeartbeat = () => {
+        if (heartbeatTimer) {
+            clearTimeout(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+        heartbeatRetryCount = 0;
+    };
     const finalizeActiveCard = async ({ isAborted = false, textOverride, reasoningTextOverride, elapsedMsOverride, footerOverride = resolvedFooter, } = {}) => {
         if (pendingFlushTimer) {
             clearTimeout(pendingFlushTimer);
             pendingFlushTimer = null;
         }
+        clearHeartbeat(); // [Custom] 清心跳，防止卡片完成后继续触发心跳
         await waitForFlush();
         if (cardCreationPromise)
             await cardCreationPromise;
@@ -627,6 +713,7 @@ export function createFeishuReplyDispatcher(params) {
         originalCardKitCardId = null;
         cardKitSequence = 0;
         pendingFlushTimer = null;
+        clearHeartbeat(); // [Custom] 清心跳
         accumulatedReasoningText = "";
         lastSentReasoningText = ""; // [Custom] 重置
         lastReasoningText = ""; // [Custom] 重置
@@ -668,20 +755,6 @@ export function createFeishuReplyDispatcher(params) {
                 return;
             }
 
-            // [Custom] 多消息模式检测：新阶段检测
-            // 当文本长度显著缩短时，认为是新阶段，需要创建新消息
-            if (useMultiMessageMode && lastDeliveredTextLength > 0 && text.length < lastDeliveredTextLength * 0.8) {
-                params.runtime.log?.(`feishu[${account.accountId}] multi-message mode: new stage detected (prev=${lastDeliveredTextLength}, curr=${text.length})`);
-                // 重置当前消息状态，强制创建新消息
-                cardMessageId = null;
-                cardKitCardId = null;
-                originalCardKitCardId = null;
-                cardCreationPromise = null;
-                accumulatedText = "";
-                streamingPrefix = "";
-                completedText = "";
-                lastPartialText = "";
-            }
             lastDeliveredTextLength = text.length;
 
             // Ensure the streaming card exists (lazy init)
@@ -936,6 +1009,7 @@ export function createFeishuReplyDispatcher(params) {
         try {
             aborted = true;
             cardCompleted = true;
+            clearHeartbeat(); // [Custom] 清心跳，防止中止后继续触发心跳
             if (!thinkingAbortFinalize) {
                 params.runtime.log?.(`feishu[${account.accountId}]: abortCard finalize disabled by config`);
                 return;
